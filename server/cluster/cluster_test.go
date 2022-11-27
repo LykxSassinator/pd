@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -1788,10 +1789,30 @@ func TestAwakenStore(t *testing.T) {
 	}
 
 	now := time.Now()
-	store4 := stores[0].Clone(core.SetLastHeartbeatTS(now), core.SetLastAwakenTime(now.Add(-11*time.Minute)))
-	re.NoError(cluster.putStoreLocked(store4))
-	store1 := cluster.GetStore(1)
+	store1 := stores[0].Clone(core.SetLastHeartbeatTS(now), core.SetLastAwakenTime(now.Add(-11*time.Minute)))
+	re.NoError(cluster.putStoreLocked(store1))
+	store1 = cluster.GetStore(1)
 	re.True(store1.NeedAwakenStore())
+	{
+		// Add one slowStore with heartbeat timestamp now.(-19 seconds).
+		stats := &pdpb.StoreStats{}
+		stats.Capacity = 100 * units.GiB
+		stats.UsedSize = 96 * units.MiB
+		stats.Available = stats.Capacity - stats.UsedSize
+		stats.SlowScore = 100
+		slowStore := core.NewStoreInfo(&metapb.Store{Id: 4},
+			core.SetStoreStats(stats),
+			core.SetLastHeartbeatTS(now.Add(-21*time.Second)),
+		)
+		re.NoError(cluster.putStoreLocked(slowStore))
+		needAwaken, _ := cluster.NeedAwakenAllRegionsInStore(1)
+		re.True(needAwaken)
+		// Update slowStore -> connected
+		slowStore = slowStore.Clone(core.SetLastHeartbeatTS(now.Add(-19 * time.Second))) // reset hearbeat
+		re.NoError(cluster.putStoreLocked(slowStore))
+		needAwaken, _ = cluster.NeedAwakenAllRegionsInStore(1)
+		re.False(needAwaken)
+	}
 }
 
 type testCluster struct {
