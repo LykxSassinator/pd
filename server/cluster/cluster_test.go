@@ -1777,6 +1777,15 @@ func TestAwakenStore(t *testing.T) {
 	_, opt, err := newTestScheduleConfig()
 	re.NoError(err)
 	cluster := newTestRaftCluster(ctx, mockid.NewIDAllocator(), opt, storage.NewStorageWithMemoryBackend(), core.NewBasicCluster())
+	cluster.coordinator = newCoordinator(ctx, cluster, nil)
+	{
+		// Add evict-slow-store scheduler.
+		args := []string{fmt.Sprintf("%d", 1)}
+		evictScheduler, err := schedule.CreateScheduler(schedulers.EvictSlowStoreType, cluster.GetOperatorController(), cluster.storage, schedule.ConfigSliceDecoder(schedulers.EvictSlowStoreType, args))
+		re.NoError(err)
+		re.NoError(cluster.AddScheduler(evictScheduler, args...))
+		re.NoError(cluster.opt.Persist(cluster.GetStorage()))
+	}
 	n := uint64(3)
 	stores := newTestStores(n, "6.0.0")
 	re.True(stores[0].NeedAwakenStore())
